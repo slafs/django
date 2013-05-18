@@ -1540,6 +1540,36 @@ class RouterTestCase(TestCase):
         self.assertEqual(Book.objects.using('default').get(pk=b.pk).published,
                          datetime.date(2009, 5, 4))
 
+    def test_related_writes_use_write_db(self):
+        """Tests that queries on related managers use the write db when appropriate"""
+
+        # mark and his book get created in the default db
+        mark = Person.objects.using(DEFAULT_DB_ALIAS).create(name="Mark Pilgrim")
+        Book.objects.using(DEFAULT_DB_ALIAS).create(editor=mark, title="Original Title",
+                                                    published=datetime.date(2009, 5, 4))
+        self.assertEqual(mark.edited.using(DEFAULT_DB_ALIAS).count(), 1)
+        # create a copy of mark and his book in the other db (as if we were in a master/slave relationship)
+        other_mark = Person.objects.using('other').create(name="Mark Pilgrim")
+        Book.objects.using('other').create(editor=other_mark, title="Original Title",
+                                           published=datetime.date(2009, 5, 4))
+        self.assertEqual(other_mark.edited.using('other').count(), 1)
+        # this is a ready so it should use the 'other' db
+        related_manager = Person.objects.get(name="Mark Pilgrim").edited
+        marks_books = related_manager.all()
+        # this alternative syntax for the above line makes the test pass:
+        # marks_books = Book.objects.filter(editor__name="Mark Pilgrim")
+        self.assertEqual(marks_books.db, 'other')
+        # when we execute a write, it should switch to the 'default' db,
+        # thereby updating or deleting the books in the 'default' db and leaving
+        # the books in the 'other' db untouched
+        # import bpdb; bpdb.set_trace()
+        marks_books.update(title='New Title')
+        self.assertEqual(other_mark.edited.using('other').get().title, 'Original Title')
+        self.assertEqual(mark.edited.using(DEFAULT_DB_ALIAS).get().title, 'New Title')
+        marks_books.delete()
+        self.assertEqual(other_mark.edited.using('other').count(), 1)
+        self.assertEqual(mark.edited.using(DEFAULT_DB_ALIAS).count(), 0)
+
 
 class AuthTestCase(TestCase):
     multi_db = True

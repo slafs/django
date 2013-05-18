@@ -405,7 +405,9 @@ class ForeignRelatedObjectsDescriptor(object):
                     return self.instance._prefetched_objects_cache[rel_field.related_query_name()]
                 except (AttributeError, KeyError):
                     db = self._db or router.db_for_read(self.model, instance=self.instance)
+                    db_for_write = self._db or router.db_for_write(self.model, instance=self.instance)
                     qs = super(RelatedManager, self).get_queryset().using(db).filter(**self.core_filters)
+                    setattr(qs, '_db_for_write', db_for_write)
                     empty_strings_as_null = connections[db].features.interprets_empty_strings_as_nulls
                     for field in rel_field.foreign_related_fields:
                         val = getattr(self.instance, field.attname)

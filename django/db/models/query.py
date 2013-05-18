@@ -531,7 +531,11 @@ class QuerySet(object):
         del_query.query.select_related = False
         del_query.query.clear_ordering(force_empty=True)
 
-        collector = Collector(using=del_query.db)
+        write_db = del_query.db
+        if hasattr(self, '_db_for_write'):
+            write_db = self._db_for_write
+
+        collector = Collector(using=write_db)
         collector.collect(del_query)
         collector.delete()
 
@@ -557,8 +561,11 @@ class QuerySet(object):
         self._for_write = True
         query = self.query.clone(sql.UpdateQuery)
         query.add_update_values(kwargs)
-        with transaction.commit_on_success_unless_managed(using=self.db):
-            rows = query.get_compiler(self.db).execute_sql(None)
+        write_db = self.db
+        if hasattr(self, '_db_for_write'):
+            write_db = self._db_for_write
+        with transaction.commit_on_success_unless_managed(using=write_db):
+            rows = query.get_compiler(write_db).execute_sql(None)
         self._result_cache = None
         return rows
     update.alters_data = True
