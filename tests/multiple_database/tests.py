@@ -1570,6 +1570,76 @@ class RouterTestCase(TestCase):
         self.assertEqual(other_mark.edited.using('other').count(), 1)
         self.assertEqual(mark.edited.using(DEFAULT_DB_ALIAS).count(), 0)
 
+    def test_related_writes_use_write_db_m2m_book_set(self):
+        """Tests that queries on related managers use the write db when appropriate
+        with a ManyToMany scenario. This is a book_set manager case"""
+        # ian and his book get created in the default db
+        ian = Person.objects.using(DEFAULT_DB_ALIAS).create(name="Ian Bicking")
+        book = Book(title="Original Title", published=datetime.date(2009, 5, 4))
+        book.save(using=DEFAULT_DB_ALIAS)
+        book.authors.db_manager(DEFAULT_DB_ALIAS).add(ian)
+
+        # create a copy of ian and his book in the other db (as if we were in a master/slave relationship)
+        other_ian = Person.objects.using('other').create(name="Ian Bicking")
+        other_book = Book(title="Original Title", published=datetime.date(2009, 5, 4))
+        other_book.save(using='other')
+
+        # force a relation on the other db
+        Book.authors.through.objects.using('other').create(person=other_ian, book=other_book)
+
+        self.assertEqual(book.authors.using('default').all().count(), 1)
+        self.assertEqual(other_book.authors.using('other').all().count(), 1)
+        self.assertEqual(ian.book_set.using('default').all().count(), 1)
+        self.assertEqual(other_ian.book_set.using('other').all().count(), 1)
+
+        # this is a ready so it should use the 'other' db
+        related_manager = Person.objects.get(name="Ian Bicking").book_set
+        ian_books = related_manager.all()
+        self.assertEqual(ian_books.db, 'other')
+        self.assertEqual(ian_books.count(), 1)
+
+        ian_books.update(title='New Title')
+        self.assertEqual(other_ian.book_set.using('other').get().title, 'Original Title')
+        self.assertEqual(ian.book_set.using(DEFAULT_DB_ALIAS).get().title, 'New Title')
+        ian_books.delete()
+        self.assertEqual(other_ian.book_set.using('other').count(), 1)
+        self.assertEqual(ian.book_set.using(DEFAULT_DB_ALIAS).count(), 0)
+
+    def test_related_writes_use_write_db_m2m_authors(self):
+        """Tests that queries on related managers use the write db when appropriate
+        with a ManyToMany scenario. This is an authors manager case"""
+        # ian and his book get created in the default db
+        ian = Person.objects.using(DEFAULT_DB_ALIAS).create(name="Ian Bicking")
+        book = Book(title="Original Title", published=datetime.date(2009, 5, 4))
+        book.save(using=DEFAULT_DB_ALIAS)
+        book.authors.db_manager(DEFAULT_DB_ALIAS).add(ian)
+
+        # create a copy of ian and his book in the other db (as if we were in a master/slave relationship)
+        other_ian = Person.objects.using('other').create(name="Ian Bicking")
+        other_book = Book(title="Original Title", published=datetime.date(2009, 5, 4))
+        other_book.save(using='other')
+
+        # force a relation on the other db
+        Book.authors.through.objects.using('other').create(person=other_ian, book=other_book)
+
+        self.assertEqual(book.authors.using('default').all().count(), 1)
+        self.assertEqual(other_book.authors.using('other').all().count(), 1)
+        self.assertEqual(ian.book_set.using('default').all().count(), 1)
+        self.assertEqual(other_ian.book_set.using('other').all().count(), 1)
+
+        # this is a ready so it should use the 'other' db
+        related_manager = Book.objects.get(title="Original Title").authors
+        original_authors = related_manager.all()
+        self.assertEqual(original_authors.db, 'other')
+        self.assertEqual(original_authors.count(), 1)
+
+        original_authors.update(name='Mark Pilgrim')
+        self.assertEqual(other_book.authors.using('other').get().name, 'Ian Bicking')
+        self.assertEqual(book.authors.using(DEFAULT_DB_ALIAS).get().name, 'Mark Pilgrim')
+        original_authors.delete()
+        self.assertEqual(other_book.authors.using('other').count(), 1)
+        self.assertEqual(book.authors.using(DEFAULT_DB_ALIAS).count(), 0)
+
 
 class AuthTestCase(TestCase):
     multi_db = True
